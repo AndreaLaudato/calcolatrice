@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Calcolatrice</title>
+    <style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+        background: #f5f5f5;
+        padding: 24px 16px;
+    }
+
+    #calcolatrice {
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 20px;
+        max-width: 400px;
+        margin: 0 auto;
+    }
+
+    input, button {
+        display: block;
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 8px;
+        border: 1px solid #ddd;
+        border-radius: 3px;
+        font-size: 14px;
+        background: #fff;
+    }
+
+    #operazioni { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 6px; } 
+    #operazioni button { margin-bottom: 8px; }
+    #storico { list-style: none; border-top: 1px solid #ddd; padding-top: 8px; color: #555; }
+    #storico li { padding: 3px 0; }
+    #avviso { font-size: 12px; color: #aaa; padding-top: 6px; }
+    input[readonly] { background: #f5f5f5; color: #555; }
+    </style>
+</head>
+<body>
+    <div id="calcolatrice">
+        <!-- Campi dove inserire gli Operandi -->
+        <input type="number" id="NumA" name="NumA" placeholder="Inserisci il primo operando">
+        <input type="number" id="NumB" name="NumB" placeholder="Inserisci il secondo operando">
+
+        <!-- Bottoni per selezionare l'operazione -->
+        <div id="operazioni">
+            <button type="button" data-op="+">+</button>
+            <button type="button" data-op="-">-</button>
+            <button type="button" data-op="*">*</button>
+            <button type="button" data-op="/">/</button>
+            <button type="button" data-op="%">%</button>
+        </div>
+
+        <!-- Risultato ultima operazione (campo non editabile) -->
+        <input type="text" id="Risultato" value="Risultato" readonly>
+
+        <div id="avviso">Mostrati solo gli ultimi 20 risultati</div>
+
+        <!-- Operazioni eseguite (campo non editabile) -->
+        <ul id="storico"></ul>
+
+        <!-- Bottone per cancellare la cronologia -->
+        <button type="button" id="cancellaCronologia">Cancella Cronologia</button>
+
+    </div>
+
+    <script>
+
+        /* Dichiarazione operazioni (chiave = nome operazione, valore = operazione vera e propria) */
+
+        const OPS = {
+        '+': (NumA, NumB) => NumA + NumB,
+        '-': (NumA, NumB) => NumA - NumB,
+        '*': (NumA, NumB) => NumA * NumB,
+        '/': (NumA, NumB) => NumA / NumB,
+        '%': (NumA, NumB) => NumA % NumB,
+        };
+
+        /* Funzione calcola: controlla se l'utente inserisce valori non numerici e controlla se prova a dividere per 0 ed eventualmente lo blocca */
+
+        function calcola(NumA, op, NumB) { // Questa funzione "calcola" appunto il risultato prendendo in input i valori degli operandi dai campi editabili e dell'operazione dal bottone premuto
+            if (isNaN(NumA) || isNaN(NumB)) return 'Input non valido'; // Controlla se l'utente ha inserito un valore non numerico e lo blocca
+            if (op === '/' && NumB === 0) return 'Divisione per 0 non consentita'; // Controlla se l'utente prova a dividere per 0 e lo blocca
+            return OPS[op](NumA, NumB);
+        }
+
+         // Crea un list item ad ogni operazione, messo in una funzione per essere riutilizzabile
+        function creaLi(NumA, op, NumB, risultato) {
+            const li = document.createElement('li'); 
+            li.textContent = (risultato === 'Input non valido' || risultato === 'Divisione per 0 non consentita')
+                ? risultato
+                : `${NumA} ${op} ${NumB} = ${risultato}`; // In caso di errore mostra solo il messaggio di errore invece della formula completa
+            document.getElementById('storico').appendChild(li);
+        }
+
+        async function mostraStorico (){
+            document.getElementById('storico').innerHTML = ''; // svuota lo storico prima di ricaricare per evitare duplicati
+            const response = await fetch('/calcola'); // richiesta GET al server per ottenere gli ultimi 20 documenti dal DB
+            const json = await response.json(); // converte la risposta in oggetto JS
+        
+            json.data.forEach(op => { // crea un li per ogni documento
+                creaLi(op.NumA, op.op, op.NumB, op.risultato);
+            });
+        }
+
+        async function cancellaCronologia(){ // invia una richiesta DELETE al server per eliminare tutti i documenti dal DB
+            const response = await fetch('/calcola', {method: 'DELETE',}); // richiesta DELETE al server
+            const json = await response.json(); // converte la risposta in oggetto JS
+            mostraStorico(); // ricarica lo storico (vuoto) dopo la cancellazione
+        };
+            document.getElementById('cancellaCronologia').addEventListener('click', () => { // listener sul bottone cancella cronologia
+                cancellaCronologia();
+        });
+
+
+
+        /* Aggiunge un event listener su ogni elemento del contenitore "Operazioni", se voglio aggiungere una funzione nuova è sufficiente aggiungerla in OPS e aggiungere il bottone in HTML */
+
+        document.getElementById('operazioni').addEventListener('click', (event) => {
+        const op = event.target.dataset.op;
+            if (!op) return;
+
+            const NumA = parseFloat(document.getElementById('NumA').value); // Prende il valore inserito dall'utente nel primo campo e lo converte da stringa a numero
+            const NumB = parseFloat(document.getElementById('NumB').value); // Prende il valore inserito dall'utente nel secondo campo e lo converte da stringa a numero
+
+            const risultato = calcola(NumA, op, NumB); // Calcola il risultato usando la funzione "calcola"
+            document.getElementById('Risultato').value = risultato;
+            fetch('/calcola', { // chiamata fetch a server.js
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ // converte in JSON i risultati
+                    NumA: isNaN(NumA) ? 'NaN' : NumA,
+                    op,
+                    NumB: isNaN(NumB) ? 'NaN' : NumB,
+                    risultato
+                })
+            });
+            mostraStorico(); // ricarica lo storico dal DB dopo ogni nuova operazione 
+    });
+    mostraStorico(); // popola lo storico al caricamento della pagina con i dati già presenti nel DB
+    document.getElementById('Risultato').value = 'Risultato'; // resetta il campo risultato ad ogni ricarica
+
+
+
+    </script>
+
+</body>
+</html>
